@@ -1,0 +1,33 @@
+# Web Framework
+streamlit==1.28.1
+
+# HTTP Client
+httpx==0.25.0
+requests==2.31.0
+
+# Environment Management
+python-dotenv==1.0.0
+
+# Data Validation
+pydantic==2.4.2
+
+# Logging
+loguru==0.7.2
+
+# ============================================
+# Phase 2 dependencies (RAG integration)
+# ============================================
+
+# Vector model and embeddings
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+
+# Vector database
+chromadb>=0.3.21
+
+# Document processing
+langchain>=0.0.300
+langchain-community>=0.0.10
+PyPDF2>=3.0.1
+python-pptx>=0.6.21
+python-docx>=0.8.11

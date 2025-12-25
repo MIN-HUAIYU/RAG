@@ -1,0 +1,26 @@
+# Phase 2 RAG Dependencies
+# Install with: pip install -r requirements-rag.txt
+
+# Core dependencies (from Phase 1)
+streamlit==1.28.1
+httpx==0.25.0
+requests==2.31.0
+python-dotenv==1.0.0
+pydantic==2.4.2
+loguru==0.7.2
+
+# RAG Phase 2 - Vector embeddings
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+
+# RAG Phase 2 - Vector database
+chromadb>=0.3.21
+
+# RAG Phase 2 - Document processing
+langchain>=0.0.300
+langchain-community>=0.0.10
+PyPDF2>=3.0.1
+
+# Optional: Document format support
+# python-pptx>=0.6.21     # For PowerPoint support
+# python-docx>=0.8.11     # For Word document support
