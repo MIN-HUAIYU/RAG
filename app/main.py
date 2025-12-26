@@ -5,19 +5,25 @@ Streamlit + DeepSeek API
 
 import streamlit as st
 from loguru import logger
-from app.config import Config
-from app.services import DeepSeekService
-from app.components import ChatInterface
+from config import Config
+from services import DeepSeekService
+from components import ChatInterface
 
 # RAG 模块（可选 - 如果安装失败则使用纯对话模式）
+RAG_AVAILABLE = False
 try:
+    import chromadb
     from rag.embeddings import BGEEmbeddings
     from rag.vector_store import VectorStore
     from rag.document_processor import DocumentProcessor
     from rag.retriever import RAGRetriever
     RAG_AVAILABLE = True
+    logger.info("RAG modules loaded successfully!")
 except ImportError as e:
     logger.warning(f"RAG modules not available: {e}. Running in chat-only mode.")
+    RAG_AVAILABLE = False
+except Exception as e:
+    logger.error(f"Error loading RAG modules: {e}")
     RAG_AVAILABLE = False
 
 # ============================================

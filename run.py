@@ -41,12 +41,29 @@ def main():
     print("🚀 启动 Streamlit 应用...")
     print(f"📁 项目目录: {project_root}")
     print(f"🐍 PYTHONPATH: {env['PYTHONPATH']}")
+    print(f"🐍 Python: {sys.executable}")
 
-    # 启动 Streamlit
+    # 验证依赖
+    try:
+        import chromadb
+        print(f"✅ chromadb {chromadb.__version__} 已安装")
+    except ImportError:
+        print("⚠️ chromadb 未找到，将以纯对话模式运行")
+
+    # 启动 Streamlit - 使用 Python 3.11
+    python_311 = r"C:\Users\user\AppData\Local\Programs\Python\Python311\python.exe"
+    if os.path.exists(python_311):
+        print(f"使用 Python 3.11: {python_311}")
+        streamlit_cmd = [python_311, "-m", "streamlit", "run",
+                        os.path.join(project_root, "app", "main.py")]
+    else:
+        print("未找到 Python 3.11，使用默认 Python")
+        streamlit_cmd = [sys.executable, "-m", "streamlit", "run",
+                        os.path.join(project_root, "app", "main.py")]
+
     try:
         subprocess.run(
-            [sys.executable, "-m", "streamlit", "run",
-             os.path.join(project_root, "app", "main.py")],
+            streamlit_cmd,
             cwd=project_root,
             env=env
         )
