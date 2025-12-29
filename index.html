@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DeepSeek RAG 聊天助手</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 1200px;
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+            height: 90vh;
+        }
+
+        @media (max-width: 768px) {
+            .container {
+                grid-template-columns: 1fr;
+                height: auto;
+            }
+        }
+
+        .sidebar {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow-y: auto;
+        }
+
+        .main {
+            display: flex;
+            flex-direction: column;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+        }
+
+        .title {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .section {
+            margin-bottom: 25px;
+        }
+
+        .section-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #667eea;
+            text-transform: uppercase;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            font-size: 13px;
+            color: #555;
+            margin-bottom: 6px;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="password"],
+        textarea,
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 13px;
+            font-family: inherit;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="password"]:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        button {
+            width: 100%;
+            padding: 10px 16px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 16px rgba(102, 126, 234, 0.3);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .switch {
+            position: relative;
+            display: inline-block;
+            width: 50px;
+            height: 24px;
+        }
+
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #ccc;
+            transition: 0.3s;
+            border-radius: 24px;
+        }
+
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 18px;
+            width: 18px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+
+        input:checked + .slider {
+            background-color: #667eea;
+        }
+
+        input:checked + .slider:before {
+            transform: translateX(26px);
+        }
+
+        .kb-stats {
+            background: #f8f9ff;
+            padding: 12px;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+
+        .kb-stat {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            margin-bottom: 6px;
+            color: #555;
+        }
+
+        .kb-stat:last-child {
+            margin-bottom: 0;
+        }
+
+        .kb-stat span:last-child {
+            font-weight: 600;
+            color: #667eea;
+        }
+
+        .chat-area {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            background: #f8f9fa;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .message {
+            display: flex;
+            gap: 10px;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 14px;
+            line-height: 1.5;
+            word-wrap: break-word;
+        }
+
+        .message.assistant .message-content {
+            background: white;
+            color: #333;
+            border: 1px solid #e0e0e0;
+        }
+
+        .message.user .message-content {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+
+        .message.system .message-content {
+            background: #fff3cd;
+            color: #856404;
+            align-self: center;
+            max-width: 90%;
+        }
+
+        .message.error .message-content {
+            background: #f8d7da;
+            color: #721c24;
+            align-self: center;
+            max-width: 90%;
+        }
+
+        .input-area {
+            padding: 20px;
+            background: white;
+            border-top: 1px solid #e0e0e0;
+            display: flex;
+            gap: 10px;
+        }
+
+        .input-group {
+            flex: 1;
+            display: flex;
+            gap: 8px;
+        }
+
+        #messageInput {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            resize: none;
+            max-height: 120px;
+            font-size: 14px;
+            font-family: inherit;
+        }
+
+        #messageInput:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+
+        .button-group {
+            display: flex;
+            gap: 8px;
+        }
+
+        .button-group button {
+            flex: 1;
+            min-width: 100px;
+        }
+
+        .btn-secondary {
+            background: #e0e0e0;
+            color: #333;
+        }
+
+        .btn-secondary:hover {
+            background: #d0d0d0;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        }
+
+        .upload-area {
+            border: 2px dashed #667eea;
+            border-radius: 8px;
+            padding: 15px;
+            text-align: center;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .upload-area:hover {
+            background: #f0f4ff;
+        }
+
+        .upload-area.dragover {
+            background: #e8ecff;
+            border-color: #764ba2;
+        }
+
+        .upload-area input[type="file"] {
+            display: none;
+        }
+
+        .file-list {
+            margin-top: 12px;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .file-item {
+            background: #f0f4ff;
+            padding: 8px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            color: #555;
+        }
+
+        .file-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            background: #667eea;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 1; }
+        }
+
+        .loader {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(102, 126, 234, 0.1);
+            border-radius: 50%;
+            border-top-color: #667eea;
+            animation: spin 0.8s linear infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .info-box {
+            background: #e3f2fd;
+            border-left: 4px solid #2196F3;
+            padding: 10px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #1565c0;
+            margin-bottom: 12px;
+        }
+
+        .error-box {
+            background: #ffebee;
+            border-left: 4px solid #f44336;
+            padding: 10px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #c62828;
+            margin-bottom: 12px;
+        }
+
+        .success-box {
+            background: #e8f5e9;
+            border-left: 4px solid #4caf50;
+            padding: 10px 12px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #2e7d32;
+            margin-bottom: 12px;
+        }
+
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #f1f1f1;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #667eea;
+            border-radius: 10px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #764ba2;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 侧边栏 -->
+        <div class="sidebar">
+            <div class="title">⚙️ 设置</div>
+
+            <!-- API 配置 -->
+            <div class="section">
+                <div class="section-title">🔑 API 配置</div>
+                <div class="form-group">
+                    <label>DeepSeek API 密钥</label>
+                    <input type="password" id="apiKey" placeholder="sk-xxxxxxxxxxxx">
+                </div>
+                <div class="form-group">
+                    <label>API 地址</label>
+                    <input type="text" id="apiUrl" value="https://api.deepseek.com" placeholder="https://api.deepseek.com">
+                </div>
+                <div class="form-group">
+                    <label>模型选择</label>
+                    <select id="modelSelect">
+                        <option value="deepseek-chat">deepseek-chat (推荐)</option>
+                        <option value="deepseek-coder">deepseek-coder</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- 模型参数 -->
+            <div class="section">
+                <div class="section-title">🎛️ 模型参数</div>
+                <div class="form-group">
+                    <label>温度 (Temperature): <span id="tempValue">0.7</span></label>
+                    <input type="range" id="temperature" min="0" max="1" step="0.1" value="0.7">
+                </div>
+                <div class="form-group">
+                    <label>最大 Token 数: <span id="maxTokensValue">2000</span></label>
+                    <input type="range" id="maxTokens" min="100" max="4000" step="100" value="2000">
+                </div>
+            </div>
+
+            <!-- RAG 控制 -->
+            <div class="section">
+                <div class="section-title">📚 RAG 知识库</div>
+
+                <div class="toggle-switch">
+                    <label for="enableRag" style="margin: 0;">启用 RAG 检索</label>
+                    <label class="switch">
+                        <input type="checkbox" id="enableRag">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <div class="toggle-switch">
+                    <label for="strictMode" style="margin: 0;">🔒 严格模式（仅知识库）</label>
+                    <label class="switch">
+                        <input type="checkbox" id="strictMode">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+
+                <!-- 知识库统计 -->
+                <div class="kb-stats">
+                    <div class="kb-stat">
+                        <span>📄 已上传文件:</span>
+                        <span id="fileCount">0</span>
+                    </div>
+                    <div class="kb-stat">
+                        <span>📋 文件总大小:</span>
+                        <span id="totalSize">0 KB</span>
+                    </div>
+                    <div class="kb-stat">
+                        <span>💾 向量数量:</span>
+                        <span id="vectorCount">0</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 文件上传 -->
+            <div class="section">
+                <div class="section-title">📤 上传文档</div>
+                <div class="upload-area" id="uploadArea">
+                    <div style="font-size: 24px; margin-bottom: 8px;">📁</div>
+                    <div style="font-size: 13px; color: #667eea; font-weight: 500;">拖拽文件或点击选择</div>
+                    <div style="font-size: 12px; color: #999; margin-top: 4px;">支持 PDF 和 TXT 格式</div>
+                    <input type="file" id="fileInput" accept=".pdf,.txt" multiple>
+                </div>
+                <div class="file-list" id="fileList"></div>
+                <button id="uploadBtn" style="margin-top: 10px;" disabled>🚀 上传文件</button>
+            </div>
+
+            <!-- 操作 -->
+            <div class="section">
+                <div class="section-title">⚡ 操作</div>
+                <button id="clearHistoryBtn" class="btn-secondary">🗑️ 清空对话</button>
+                <button id="clearKBBtn" class="btn-secondary" style="margin-top: 8px;">🧹 清空知识库</button>
+            </div>
+        </div>
+
+        <!-- 主聊天区 -->
+        <div class="main">
+            <div class="messages" id="messages"></div>
+
+            <div class="input-area">
+                <div class="input-group">
+                    <textarea id="messageInput" placeholder="输入您的问题...按 Shift+Enter 换行，Enter 发送"></textarea>
+                    <div class="button-group">
+                        <button id="sendBtn">发送</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 全局状态
+        let state = {
+            apiKey: localStorage.getItem('apiKey') || '',
+            apiUrl: localStorage.getItem('apiUrl') || 'https://api.deepseek.com',
+            model: localStorage.getItem('model') || 'deepseek-chat',
+            temperature: parseFloat(localStorage.getItem('temperature') || '0.7'),
+            maxTokens: parseInt(localStorage.getItem('maxTokens') || '2000'),
+            enableRag: localStorage.getItem('enableRag') === 'true',
+            strictMode: localStorage.getItem('strictMode') === 'true',
+            messages: [],
+            files: new Map(),
+            documents: [],
+            isLoading: false
+        };
+
+        // DOM 元素
+        const elements = {
+            apiKey: document.getElementById('apiKey'),
+            apiUrl: document.getElementById('apiUrl'),
+            modelSelect: document.getElementById('modelSelect'),
+            temperature: document.getElementById('temperature'),
+            tempValue: document.getElementById('tempValue'),
+            maxTokens: document.getElementById('maxTokens'),
+            maxTokensValue: document.getElementById('maxTokensValue'),
+            enableRag: document.getElementById('enableRag'),
+            strictMode: document.getElementById('strictMode'),
+            uploadArea: document.getElementById('uploadArea'),
+            fileInput: document.getElementById('fileInput'),
+            uploadBtn: document.getElementById('uploadBtn'),
+            fileList: document.getElementById('fileList'),
+            messages: document.getElementById('messages'),
+            messageInput: document.getElementById('messageInput'),
+            sendBtn: document.getElementById('sendBtn'),
+            clearHistoryBtn: document.getElementById('clearHistoryBtn'),
+            clearKBBtn: document.getElementById('clearKBBtn'),
+            fileCount: document.getElementById('fileCount'),
+            totalSize: document.getElementById('totalSize'),
+            vectorCount: document.getElementById('vectorCount')
+        };
+
+        // 初始化
+        function init() {
+            // 恢复状态
+            elements.apiKey.value = state.apiKey;
+            elements.apiUrl.value = state.apiUrl;
+            elements.modelSelect.value = state.model;
+            elements.temperature.value = state.temperature;
+            elements.maxTokens.value = state.maxTokens;
+            elements.enableRag.checked = state.enableRag;
+            elements.strictMode.checked = state.strictMode;
+            updateSliderDisplay();
+            elements.strictMode.disabled = !state.enableRag;
+
+            // 事件监听
+            elements.apiKey.addEventListener('change', (e) => {
+                state.apiKey = e.target.value;
+                localStorage.setItem('apiKey', state.apiKey);
+            });
+
+            elements.apiUrl.addEventListener('change', (e) => {
+                state.apiUrl = e.target.value;
+                localStorage.setItem('apiUrl', state.apiUrl);
+            });
+
+            elements.modelSelect.addEventListener('change', (e) => {
+                state.model = e.target.value;
+                localStorage.setItem('model', state.model);
+            });
+
+            elements.temperature.addEventListener('change', (e) => {
+                state.temperature = parseFloat(e.target.value);
+                localStorage.setItem('temperature', state.temperature);
+                updateSliderDisplay();
+            });
+
+            elements.maxTokens.addEventListener('change', (e) => {
+                state.maxTokens = parseInt(e.target.value);
+                localStorage.setItem('maxTokens', state.maxTokens);
+                updateSliderDisplay();
+            });
+
+            elements.enableRag.addEventListener('change', (e) => {
+                state.enableRag = e.target.checked;
+                localStorage.setItem('enableRag', state.enableRag);
+                elements.strictMode.disabled = !state.enableRag;
+                if (!state.enableRag) {
+                    state.strictMode = false;
+                    elements.strictMode.checked = false;
+                }
+            });
+
+            elements.strictMode.addEventListener('change', (e) => {
+                state.strictMode = e.target.checked;
+                localStorage.setItem('strictMode', state.strictMode);
+            });
+
+            // 文件上传
+            setupFileUpload();
+
+            // 按钮事件
+            elements.sendBtn.addEventListener('click', sendMessage);
+            elements.messageInput.addEventListener('keydown', handleKeyDown);
+            elements.uploadBtn.addEventListener('click', uploadFiles);
+            elements.clearHistoryBtn.addEventListener('click', clearHistory);
+            elements.clearKBBtn.addEventListener('click', clearKB);
+
+            // 加载示例欢迎消息
+            addMessage('系统', '👋 欢迎使用 DeepSeek RAG 聊天助手！\n\n请先配置 API 密钥，然后可以开始聊天。如果启用 RAG，您可以上传文档建立知识库。', 'system');
+        }
+
+        function updateSliderDisplay() {
+            elements.tempValue.textContent = state.temperature.toFixed(1);
+            elements.maxTokensValue.textContent = state.maxTokens;
+        }
+
+        function setupFileUpload() {
+            elements.uploadArea.addEventListener('click', () => elements.fileInput.click());
+
+            elements.uploadArea.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                elements.uploadArea.classList.add('dragover');
+            });
+
+            elements.uploadArea.addEventListener('dragleave', () => {
+                elements.uploadArea.classList.remove('dragover');
+            });
+
+            elements.uploadArea.addEventListener('drop', (e) => {
+                e.preventDefault();
+                elements.uploadArea.classList.remove('dragover');
+                handleFiles(e.dataTransfer.files);
+            });
+
+            elements.fileInput.addEventListener('change', (e) => {
+                handleFiles(e.target.files);
+            });
+        }
+
+        function handleFiles(files) {
+            for (let file of files) {
+                if (file.type === 'application/pdf' || file.type === 'text/plain') {
+                    state.files.set(file.name, file);
+                }
+            }
+            updateFileList();
+        }
+
+        function updateFileList() {
+            elements.fileList.innerHTML = '';
+            elements.uploadBtn.disabled = state.files.size === 0;
+            elements.fileCount.textContent = state.files.size;
+
+            let totalSize = 0;
+            for (let [name, file] of state.files) {
+                totalSize += file.size;
+                const item = document.createElement('div');
+                item.className = 'file-item';
+                item.innerHTML = `
+                    <span>${name} (${(file.size / 1024).toFixed(1)} KB)</span>
+                    <span style="cursor: pointer; color: #f44336;" onclick="removeFile('${name}')">✕</span>
+                `;
+                elements.fileList.appendChild(item);
+            }
+
+            elements.totalSize.textContent = (totalSize / 1024).toFixed(1) + ' KB';
+        }
+
+        window.removeFile = function(name) {
+            state.files.delete(name);
+            updateFileList();
+        };
+
+        async function uploadFiles() {
+            if (state.files.size === 0) return;
+
+            addMessage('系统', '📤 开始上传文件...', 'system');
+
+            for (let [name, file] of state.files) {
+                try {
+                    const text = await file.text();
+                    state.documents.push({ name, content: text, size: file.size });
+                    elements.vectorCount.textContent = state.documents.reduce((sum, doc) =>
+                        sum + Math.ceil(doc.content.length / 500), 0);
+
+                    addMessage('系统', `✅ 文件 "${name}" 上传成功 (${(file.size / 1024).toFixed(1)} KB)`, 'system');
+                } catch (e) {
+                    addMessage('系统', `❌ 文件 "${name}" 上传失败: ${e.message}`, 'error');
+                }
+            }
+
+            state.files.clear();
+            elements.fileInput.value = '';
+            updateFileList();
+        }
+
+        function handleKeyDown(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                sendMessage();
+            }
+        }
+
+        async function sendMessage() {
+            const text = elements.messageInput.value.trim();
+            if (!text || state.isLoading) return;
+
+            if (!state.apiKey) {
+                addMessage('系统', '❌ 请先配置 DeepSeek API 密钥', 'error');
+                return;
+            }
+
+            elements.messageInput.value = '';
+            addMessage('用户', text, 'user');
+
+            state.isLoading = true;
+            elements.sendBtn.disabled = true;
+            elements.messageInput.disabled = true;
+
+            try {
+                let context = '';
+                if (state.enableRag && state.documents.length > 0) {
+                    // 简单的相关性搜索
+                    const tokens = text.toLowerCase().split(/\s+/);
+                    const relevantDocs = state.documents.filter(doc =>
+                        tokens.some(token => doc.content.toLowerCase().includes(token))
+                    ).slice(0, 3);
+
+                    if (relevantDocs.length > 0) {
+                        context = '相关文档信息：\n' + relevantDocs.map((doc, i) =>
+                            `文档 ${i + 1} (${doc.name}):\n${doc.content.substring(0, 500)}...`
+                        ).join('\n\n');
+                    }
+                }
+
+                let systemPrompt = '你是一个有帮助的助手。';
+                if (state.strictMode && context) {
+                    systemPrompt += '你只能基于以下提供的文档内容回答问题，不能使用其他知识。';
+                }
+
+                const messages = [
+                    ...state.messages.map(msg => ({
+                        role: msg.role === '用户' ? 'user' : msg.role === '助手' ? 'assistant' : 'system',
+                        content: msg.content
+                    })),
+                    {
+                        role: 'user',
+                        content: context ? `${context}\n\n用户问题：${text}` : text
+                    }
+                ];
+
+                const response = await fetch(`${state.apiUrl}/v1/chat/completions`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': `Bearer ${state.apiKey}`
+                    },
+                    body: JSON.stringify({
+                        model: state.model,
+                        messages: messages,
+                        temperature: state.temperature,
+                        max_tokens: state.maxTokens,
+                        stream: true
+                    })
+                });
+
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.error?.message || '请求失败');
+                }
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let fullResponse = '';
+                let messageElement = null;
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+
+                    for (let line of lines) {
+                        if (line.startsWith('data: ')) {
+                            const data = line.slice(6);
+                            if (data === '[DONE]') continue;
+
+                            try {
+                                const json = JSON.parse(data);
+                                const content = json.choices?.[0]?.delta?.content || '';
+                                if (content) {
+                                    fullResponse += content;
+                                    if (!messageElement) {
+                                        messageElement = addMessage('助手', content, 'assistant');
+                                    } else {
+                                        messageElement.querySelector('.message-content').textContent = fullResponse;
+                                    }
+                                    elements.messages.scrollTop = elements.messages.scrollHeight;
+                                }
+                            } catch (e) {
+                                // 忽略解析错误
+                            }
+                        }
+                    }
+                }
+
+                state.messages.push({ role: '用户', content: text });
+                state.messages.push({ role: '助手', content: fullResponse });
+
+            } catch (error) {
+                addMessage('系统', `❌ 错误: ${error.message}`, 'error');
+            } finally {
+                state.isLoading = false;
+                elements.sendBtn.disabled = false;
+                elements.messageInput.disabled = false;
+                elements.messageInput.focus();
+            }
+        }
+
+        function addMessage(role, content, type = null) {
+            const msgDiv = document.createElement('div');
+            msgDiv.className = `message ${type || (role === '用户' ? 'user' : 'assistant')}`;
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+            contentDiv.textContent = content;
+
+            msgDiv.appendChild(contentDiv);
+            elements.messages.appendChild(msgDiv);
+            elements.messages.scrollTop = elements.messages.scrollHeight;
+
+            return msgDiv;
+        }
+
+        function clearHistory() {
+            if (confirm('确定要清空所有对话吗？')) {
+                state.messages = [];
+                elements.messages.innerHTML = '';
+                addMessage('系统', '✅ 对话已清空', 'system');
+            }
+        }
+
+        function clearKB() {
+            if (confirm('确定要清空所有知识库文件吗？')) {
+                state.documents = [];
+                state.files.clear();
+                elements.vectorCount.textContent = '0';
+                elements.totalSize.textContent = '0 KB';
+                elements.fileCount.textContent = '0';
+                updateFileList();
+                addMessage('系统', '✅ 知识库已清空', 'system');
+            }
+        }
+
+        // 初始化应用
+        init();
+    </script>
+</body>
+</html>
