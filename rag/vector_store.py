@@ -98,24 +98,19 @@ class VectorStore:
         else:
             logger.warning("No valid documents to add")
 
-    def retrieve(self, query: str, top_k: int = 3, embeddings_manager=None, similarity_threshold: float = 0.3) -> list:
+    def retrieve(self, query: str, top_k: int = 3, embeddings_manager=None, similarity_threshold: float = 0.01) -> list:
         """
         Retrieve top-k most similar documents for a query.
-
-        Supports both semantic search and fuzzy matching for better knowledge discovery.
+        使用向量检索 + 关键词匹配双重策略。
 
         Args:
             query: Query text
             top_k: Number of top results to retrieve (default: 3)
             embeddings_manager: BGEEmbeddings instance for query embedding
-            similarity_threshold: Minimum similarity score (default: 0.3 for fuzzy matching)
+            similarity_threshold: Minimum similarity score (default: 0.01)
 
         Returns:
-            List of retrieved documents with scores:
-            [
-                {"text": "...", "source": "...", "score": 0.85},
-                ...
-            ]
+            List of retrieved documents with scores
         """
         if not embeddings_manager:
             logger.error("embeddings_manager is required")
@@ -127,41 +122,107 @@ class VectorStore:
             logger.warning("Vector store is empty, no documents to retrieve")
             return []
 
-        # Generate query embedding
-        query_embedding = embeddings_manager.embed_query(query).tolist()
+        logger.info(f"🔍 检索查询: '{query}', 知识库文档数: {doc_count}")
 
-        # Query with lower threshold initially to capture more results
-        results = self.collection.query(
-            query_embeddings=[query_embedding],
-            n_results=min(top_k * 2, doc_count),  # Retrieve more to filter
-            include=["documents", "distances", "metadatas"]
-        )
-
-        # Process results with threshold filtering
         retrieved = []
-        if results["documents"] and results["documents"][0]:
-            for doc, distance, metadata in zip(
-                results["documents"][0],
-                results["distances"][0],
-                results["metadatas"][0]
-            ):
-                # Convert distance to similarity (cosine distance to similarity)
-                similarity = 1 - distance
 
-                # Include results above threshold
-                if similarity >= similarity_threshold:
-                    retrieved.append({
+        # 策略1: 关键词匹配（优先）
+        keyword_results = self._keyword_search(query, top_k * 2)
+        if keyword_results:
+            logger.info(f"✅ 关键词匹配找到 {len(keyword_results)} 个结果")
+            retrieved.extend(keyword_results)
+
+        # 策略2: 向量检索
+        try:
+            query_embedding = embeddings_manager.embed_query(query).tolist()
+            results = self.collection.query(
+                query_embeddings=[query_embedding],
+                n_results=min(top_k * 2, doc_count),
+                include=["documents", "distances", "metadatas"]
+            )
+
+            if results["documents"] and results["documents"][0]:
+                for doc, distance, metadata in zip(
+                    results["documents"][0],
+                    results["distances"][0],
+                    results["metadatas"][0]
+                ):
+                    similarity = 1 - distance
+                    if similarity >= similarity_threshold:
+                        # 检查是否已经在结果中
+                        if not any(r["text"] == doc for r in retrieved):
+                            retrieved.append({
+                                "text": doc,
+                                "source": metadata.get("source", "unknown"),
+                                "chunk_id": metadata.get("chunk_id", 0),
+                                "score": round(similarity, 4)
+                            })
+                logger.info(f"✅ 向量检索完成，当前结果数: {len(retrieved)}")
+        except Exception as e:
+            logger.warning(f"向量检索失败: {e}")
+
+        # 按分数排序，取 top_k
+        retrieved.sort(key=lambda x: x["score"], reverse=True)
+        retrieved = retrieved[:top_k]
+
+        logger.info(f"📚 最终检索结果: {len(retrieved)} 个文档")
+        for idx, doc in enumerate(retrieved, 1):
+            logger.debug(f"  [{idx}] {doc['source']} - 相关度: {doc['score']:.2%}")
+
+        return retrieved
+
+    def _keyword_search(self, query: str, top_k: int = 5) -> list:
+        """
+        关键词匹配搜索 - 直接在文档中搜索查询关键词
+        """
+        try:
+            # 获取所有文档
+            all_docs = self.collection.get(
+                limit=self.collection.count(),
+                include=["documents", "metadatas"]
+            )
+
+            if not all_docs["documents"]:
+                return []
+
+            results = []
+            query_lower = query.lower()
+
+            for doc, metadata in zip(all_docs["documents"], all_docs["metadatas"]):
+                doc_lower = doc.lower()
+
+                # 计算关键词匹配分数
+                score = 0
+
+                # 完整查询匹配
+                if query in doc:
+                    score = 0.95
+
+                # 查询词在文档中
+                elif query_lower in doc_lower:
+                    score = 0.9
+
+                # 分词匹配（每个字符）
+                else:
+                    matched_chars = sum(1 for char in query if char in doc)
+                    if matched_chars > 0:
+                        score = matched_chars / len(query) * 0.8
+
+                if score > 0.3:  # 至少匹配30%
+                    results.append({
                         "text": doc,
                         "source": metadata.get("source", "unknown"),
                         "chunk_id": metadata.get("chunk_id", 0),
-                        "score": round(similarity, 4)
+                        "score": round(score, 4)
                     })
 
-            # Keep only top_k results
-            retrieved = retrieved[:top_k]
+            # 按分数排序
+            results.sort(key=lambda x: x["score"], reverse=True)
+            return results[:top_k]
 
-        logger.debug(f"Retrieved {len(retrieved)} documents for query (threshold: {similarity_threshold})")
-        return retrieved
+        except Exception as e:
+            logger.warning(f"关键词搜索失败: {e}")
+            return []
 
     def delete_collection(self, collection_name: str = "documents"):
         """

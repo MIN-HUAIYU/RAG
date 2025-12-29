@@ -63,98 +63,55 @@ class RAGRetriever:
         # Start with system prompt if provided
         prompt_parts = []
 
-        # Enhanced system instruction with detailed requirements (NO mention of documents/references)
-        enhanced_instruction = """【系统角色与要求】
-你是一个专业的知识助手。你的任务是根据知识库中的内容，为用户的问题提供详细、全面、高质量的答案。
+        # Enhanced system instruction with detailed requirements
+        enhanced_instruction = """【系统角色】
+你是一个**只能根据下方提供的知识库内容回答问题**的助手。
 
-✨ 回答质量标准：
-1. 深度：深入分析问题，提供系统性的解释和多个角度的分析
-2. 完整性：全面覆盖问题的各个方面，确保答案充分完整
-3. 准确性：严格基于知识库内容，避免任何推测或编造
-4. 清晰性：逻辑清晰，层次分明，易于理解
-5. 自然性：像一个知识渊博的人直接回答，不要提及文献、参考或数据来源
-
-📝 回答结构建议：
-- 核心答案：先给出直接的、明确的答案
-- 详细解释：展开说明原因、背景或相关概念
-- 补充信息：提供相关的细节、例子或扩展内容
-- 相关联系：说明与其他概念或领域的关联（若适用）
-
-🎯 具体要求：
-1. 回答要充分融合知识库中的所有相关信息
-2. 组织答案时要确保逻辑连贯、层次清晰
-3. 自然融合多个知识点，不要重复原文
-4. 提供具体的数字、例子或详细信息以支持观点
-5. 如果问题有多个方面，分别阐述并总结
-6. 【重要】绝不要提及"根据文献"、"参考文献"、"文献中"等词汇
-7. 【重要】直接表述事实，就像在讲述你知道的内容一样
+⚠️ 核心规则（必须遵守）：
+- 你**只能**使用下方【知识库内容】中的信息来回答
+- **禁止**使用你的预训练知识、常识或任何外部信息
+- 如果知识库中没有相关内容，**必须说**：'抱歉，知识库中没有这方面的信息。'
 """
 
-        # Add strict mode system instruction
-        if strict_mode:
-            strict_instruction = """
-【⚠️ 严格模式 - 必须遵守】
-你是一个基于本地知识库的专业问答助手。请严格遵守以下规则：
-
-⛔ 禁止事项：
-1. 绝对禁止使用你的预训练知识、常识或外部信息
-2. 禁止根据你已知的任何知识来回答问题
-3. 禁止推测、假设或编造任何信息
-4. 禁止说"根据我的了解"、"据我所知"等暗示使用预训练知识的表述
-5. 不要重复列出文献的原文片段，而要提炼和综合
-
-✅ 必须做到：
-1. 只能、仅能、必须根据下方【参考文献】中的内容来回答
-2. 如果参考文献中没有相关信息，必须回答："抱歉，我在知识库中没有找到相关信息，无法回答这个问题。"
-3. 在保证准确性的前提下，尽可能详细和全面地回答
-4. 保持100%准确，只说文献中明确提到的内容
-"""
-            prompt_parts.append(enhanced_instruction)
-            prompt_parts.append(strict_instruction)
-        else:
-            prompt_parts.append(enhanced_instruction)
+        # Always use strict instruction
+        prompt_parts.append(enhanced_instruction)
 
         if system_prompt:
             prompt_parts.append(system_prompt)
 
-        # Add retrieved context (WITHOUT showing it as "文献" - integrate seamlessly)
+        # Add retrieved context
         if retrieved_docs:
-            context_section = "\n【知识库内容】\n"
+            context_section = "\n【知识库内容 - 你只能使用以下内容回答】\n"
+            context_section += "=" * 50 + "\n"
 
             for idx, doc in enumerate(retrieved_docs, 1):
-                # Use full text for better context
                 text = doc["text"].replace("\n", " ")
-                context_section += f"{text}\n\n"
+                source = doc.get("source", "未知")
+                context_section += f"[文档{idx}] 来源: {source}\n{text}\n\n"
 
+            context_section += "=" * 50 + "\n"
             prompt_parts.append(context_section)
         else:
             # No documents retrieved
-            if strict_mode:
-                context_section = "\n【知识库内容】\n（知识库中暂无相关内容）\n"
-                prompt_parts.append(context_section)
+            context_section = "\n【知识库内容】\n⚠️ 知识库中没有找到相关内容。你必须回答：'抱歉，知识库中没有这方面的信息。'\n"
+            prompt_parts.append(context_section)
 
         # Add user query
         prompt_parts.append(f"【用户问题】\n{user_query}\n")
 
-        # Add instruction for seamless answer (NOT mentioning documents/references)
-        context_linking = """【回答要求】
-请基于上述知识库内容，详细、全面、逻辑清晰地直接回答用户的问题。要求：
-1. 直接给出答案，不要提及"根据文献"、"参考文献"等词汇
-2. 将知识库中的信息自然融合，形成连贯的答案
-3. 组织答案使其层次分明、易于理解
-4. 充分展现知识库中的所有相关信息
-5. 不要说"根据我查询的信息"之类的话，直接表述事实
-"""
-        prompt_parts.append(context_linking)
-
-        # Add final reminder for strict mode (WITHOUT mentioning documents/references)
-        if strict_mode:
-            if not retrieved_docs:
-                reminder = "\n【⚠️ 最终提醒】\n由于知识库中没有相关内容，你必须回答：\"抱歉，我在知识库中没有找到相关信息，无法回答这个问题。\"\n绝对不要使用你的预训练知识来回答！"
-                prompt_parts.append(reminder)
-            else:
-                reminder = "\n【⚠️ 最终提醒】\n1. 只根据上述知识库内容回答，严禁使用预训练知识\n2. 提供详细、充分、高质量的答案\n3. 确保逻辑清晰、层次分明\n4. 直接表述事实，不要提文献\n5. 必须保持100%准确性"
-                prompt_parts.append(reminder)
+        # Final instruction
+        if retrieved_docs:
+            final_instruction = """【回答要求】
+请**只根据上方知识库内容**回答用户问题。
+- 如果知识库内容能回答问题，请详细回答
+- 如果知识库内容不足以回答，请说'知识库中的信息有限，只能告诉你...'然后说知识库里有的内容
+- **绝对禁止**编造或使用知识库以外的信息"""
+        else:
+            final_instruction = """【回答要求】
+知识库中没有相关内容，你**必须**回答：
+'抱歉，知识库中没有这方面的信息，无法回答您的问题。'
+**禁止**使用任何其他知识回答！"""
+        prompt_parts.append(final_instruction)
 
         final_prompt = "\n".join(prompt_parts)
         logger.debug(f"Built RAG prompt (strict_mode={strict_mode}, docs={len(retrieved_docs)}, length: {len(final_prompt)})")

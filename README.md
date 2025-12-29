@@ -1,3 +1,4 @@
+
 # 🤖 DeepSeek AI 对话系统
 
 一个基于 DeepSeek API 和 Streamlit 的智能对话应用，支持流式输出和实时交互。后续将集成 RAG（检索增强生成）技术，使用 BGE-Small-zh-v1.5 向量模型和 ChromaDB 知识库。

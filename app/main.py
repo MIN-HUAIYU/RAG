@@ -3,28 +3,59 @@ DeepSeek AI 对话应用主入口
 Streamlit + DeepSeek API
 """
 
+# 使用较新版本的 SQLite (解决 ChromaDB 兼容性问题)
+import sys
+try:
+    import pysqlite3
+    sys.modules['sqlite3'] = pysqlite3
+except ImportError:
+    pass
+
 import streamlit as st
 from loguru import logger
 from config import Config
 from services import DeepSeekService
 from components import ChatInterface
 
-# RAG 模块（可选 - 如果安装失败则使用纯对话模式）
+# RAG 模块配置
+# 模式说明：
+#   DISABLE_RAG = False: 启用 RAG（尝试加载本地缓存的向量模型）
+#   DISABLE_RAG = True:  禁用 RAG 和知识库 UI
+#   ENABLE_KB_RETRIEVAL = True: 启用知识库检索功能
+DISABLE_RAG = False  # 改为 True 可禁用 RAG 功能
+ENABLE_KB_RETRIEVAL = True  # True = 启用知识库检索，DeepSeek 可调用知识库
+
 RAG_AVAILABLE = False
-try:
-    import chromadb
-    from rag.embeddings import BGEEmbeddings
-    from rag.vector_store import VectorStore
-    from rag.document_processor import DocumentProcessor
-    from rag.retriever import RAGRetriever
-    RAG_AVAILABLE = True
-    logger.info("RAG modules loaded successfully!")
-except ImportError as e:
-    logger.warning(f"RAG modules not available: {e}. Running in chat-only mode.")
-    RAG_AVAILABLE = False
-except Exception as e:
-    logger.error(f"Error loading RAG modules: {e}")
-    RAG_AVAILABLE = False
+EMBEDDINGS_AVAILABLE = False
+
+if not DISABLE_RAG:
+    try:
+        import chromadb
+        from rag.vector_store import VectorStore
+        from rag.document_processor import DocumentProcessor
+        RAG_AVAILABLE = True
+        logger.info("RAG modules loaded successfully!")
+
+        # 尝试加载向量模型（优先使用本地缓存）
+        try:
+            from rag.embeddings import BGEEmbeddings
+            from rag.retriever import RAGRetriever
+            EMBEDDINGS_AVAILABLE = True
+            logger.info("✅ Embeddings and Retriever loaded successfully! Knowledge base retrieval is ENABLED.")
+        except Exception as e:
+            logger.warning(f"⚠️ Embeddings loading failed: {e}. Continuing without retrieval...")
+            EMBEDDINGS_AVAILABLE = False
+
+    except ImportError as e:
+        logger.warning(f"RAG modules not available: {e}. Running in chat-only mode.")
+        RAG_AVAILABLE = False
+        EMBEDDINGS_AVAILABLE = False
+    except Exception as e:
+        logger.error(f"Error loading RAG modules: {e}")
+        RAG_AVAILABLE = False
+        EMBEDDINGS_AVAILABLE = False
+else:
+    logger.info("RAG modules disabled by configuration")
 
 # ============================================
 # 页面配置
@@ -86,15 +117,7 @@ def initialize_app():
 
     # 初始化 RAG 模块 (Phase 2)
     if RAG_AVAILABLE:
-        if "embeddings_manager" not in st.session_state:
-            try:
-                with st.spinner("正在加载向量模型..."):
-                    st.session_state.embeddings_manager = BGEEmbeddings()
-                    logger.info("BGEEmbeddings 模型加载成功")
-            except Exception as e:
-                logger.warning(f"向量模型加载失败: {e}. 将在纯对话模式下运行")
-                st.session_state.embeddings_manager = None
-
+        # 先初始化 VectorStore
         if "vector_store" not in st.session_state:
             try:
                 st.session_state.vector_store = VectorStore()
@@ -102,6 +125,18 @@ def initialize_app():
             except Exception as e:
                 logger.warning(f"向量存储初始化失败: {e}")
                 st.session_state.vector_store = None
+
+        # 然后初始化 embeddings（传入 vector_store 以便训练 TF-IDF）
+        if "embeddings_manager" not in st.session_state:
+            try:
+                with st.spinner("正在加载向量模型..."):
+                    st.session_state.embeddings_manager = BGEEmbeddings(
+                        vector_store=st.session_state.vector_store
+                    )
+                    logger.info("BGEEmbeddings 模型加载成功")
+            except Exception as e:
+                logger.warning(f"向量模型加载失败: {e}. 将在纯对话模式下运行")
+                st.session_state.embeddings_manager = None
 
         if "doc_processor" not in st.session_state:
             st.session_state.doc_processor = DocumentProcessor()
@@ -190,11 +225,8 @@ def render_sidebar():
 
     # RAG 知识库管理 (Phase 2)
     # 检查 RAG 组件状态
-    rag_ready = (
-        RAG_AVAILABLE and
-        st.session_state.get('vector_store') is not None and
-        st.session_state.get('embeddings_manager') is not None
-    )
+    # 只要 RAG 模块可用，就显示知识库 UI（即使在离线模式下）
+    rag_ready = RAG_AVAILABLE
 
     if rag_ready:
         st.sidebar.markdown("### 📚 知识库")
@@ -267,6 +299,12 @@ def render_document_manager():
     上传文档到知识库，让 AI 可以从您的文档中检索相关信息来提供更准确的答案。
     """)
 
+    # 显示检索状态
+    if EMBEDDINGS_AVAILABLE and ENABLE_KB_RETRIEVAL:
+        st.success("✅ 知识库检索已启用 - AI 可以访问您的文档")
+    else:
+        st.info("⚠️ 知识库检索暂不可用")
+
     # 上传区域 - 使用容器突出显示
     with st.container():
         col1, col2 = st.columns([3, 1])
@@ -286,7 +324,9 @@ def render_document_manager():
             if uploaded_file:
                 st.info(f"📄 已选择: **{uploaded_file.name}** ({uploaded_file.size / 1024:.1f} KB)")
 
-                if st.button("🚀 立即上传", use_container_width=True, key="main_upload_btn", type="primary"):
+                # 只有在有 embeddings 时才能上传
+                upload_disabled = not EMBEDDINGS_AVAILABLE
+                if st.button("🚀 立即上传", use_container_width=True, key="main_upload_btn", type="primary", disabled=upload_disabled):
                     # 检查必要组件
                     if not st.session_state.doc_processor:
                         st.error("❌ 文档处理器未初始化")
@@ -430,7 +470,7 @@ def render_main():
         logger.info(f"strict_mode: {strict_mode}")
         logger.info(f"rag_retriever 存在: {st.session_state.rag_retriever is not None}")
 
-        if st.session_state.enable_rag and st.session_state.rag_retriever:
+        if st.session_state.enable_rag and st.session_state.rag_retriever and ENABLE_KB_RETRIEVAL:
             logger.info("✅ RAG 检索已启用，开始检索流程")
 
             # 检查知识库是否为空
@@ -452,12 +492,9 @@ def render_main():
             try:
                 with st.spinner("正在思考..."):
                     logger.info(f"开始检索: 查询='{user_input}', top_k=5, strict_mode={strict_mode}")
-                    final_prompt, retrieved_docs = st.session_state.rag_retriever.retrieve_and_build_prompt(
-                        user_input,
-                        top_k=5,  # 增加检索数量以获得更多上下文
-                        system_prompt=None,
-                        strict_mode=strict_mode
-                    )
+
+                    # 检索文档
+                    retrieved_docs = st.session_state.rag_retriever.retrieve_context(user_input, top_k=5)
                     logger.info(f"✅ RAG 检索完成: 获得 {len(retrieved_docs)} 个相关内容 (strict_mode={strict_mode})")
 
                     # 记录检索到的文档
@@ -493,6 +530,63 @@ def render_main():
             with st.spinner("AI 正在思考..."):
                 deepseek_service = st.session_state.deepseek_service
 
+                # 构建系统提示和用户提示
+                if st.session_state.enable_rag and st.session_state.rag_retriever and retrieved_docs:
+                    # RAG 模式：使用知识库内容
+                    system_prompt = """【系统角色】
+你是一个**只能根据下方提供的知识库内容回答问题**的助手。
+
+⚠️ 核心规则（必须遵守）：
+- 你**只能**使用下方【知识库内容】中的信息来回答
+- **禁止**使用你的预训练知识、常识或任何外部信息
+- 如果知识库中没有相关内容，**必须说**："抱歉，知识库中没有这方面的信息。"
+"""
+
+                    context_section = "\n【知识库内容 - 你只能使用以下内容回答】\n"
+                    context_section += "=" * 50 + "\n"
+
+                    for idx, doc in enumerate(retrieved_docs, 1):
+                        text = doc["text"].replace("\n", " ")
+                        source = doc.get("source", "未知")
+                        context_section += f"[文档{idx}] 来源: {source}\n{text}\n\n"
+
+                    context_section += "=" * 50 + "\n"
+                    context_section += "\n【用户问题】\n"
+                    context_section += f"{user_input}\n"
+                    context_section += "\n【回答要求】\n"
+                    context_section += "请**只根据上方知识库内容**回答用户问题。\n"
+                    context_section += "- 如果知识库内容能回答问题，请详细回答\n"
+                    context_section += "- 如果知识库内容不足以回答，请说'知识库中的信息有限，只能告诉你...'然后说知识库里有的内容\n"
+                    context_section += "- **绝对禁止**编造或使用知识库以外的信息\n"
+
+                    final_prompt = context_section
+
+                elif st.session_state.enable_rag and st.session_state.rag_retriever and not retrieved_docs:
+                    # RAG 模式但没有检索到内容
+                    system_prompt = """【系统角色】
+你是一个**只能根据下方提供的知识库内容回答问题**的助手。
+
+⚠️ 核心规则（必须遵守）：
+- 你**只能**使用下方【知识库内容】中的信息来回答
+- **禁止**使用你的预训练知识、常识或任何外部信息
+- 如果知识库中没有相关内容，**必须说**："抱歉，知识库中没有这方面的信息。"
+"""
+
+                    context_section = "\n【知识库内容】\n⚠️ 知识库中没有找到相关内容。\n\n"
+                    context_section += "【用户问题】\n"
+                    context_section += f"{user_input}\n"
+                    context_section += "\n【回答要求】\n"
+                    context_section += "知识库中没有相关内容，你**必须**回答：\n"
+                    context_section += "'抱歉，知识库中没有这方面的信息，无法回答您的问题。'\n"
+                    context_section += "**禁止**使用任何其他知识回答！\n"
+
+                    final_prompt = context_section
+
+                else:
+                    # 纯对话模式（未启用RAG）
+                    system_prompt = "你是一个有帮助的AI助手。请提供清晰、准确的回答。"
+                    final_prompt = user_input
+
                 # 使用流式输出
                 with st.chat_message("assistant"):
                     # 参考文献在后台使用，不在前端显示
@@ -505,9 +599,10 @@ def render_main():
                     message_placeholder = st.empty()
                     full_response = ""
 
-                    # 流式获取响应
+                    # 流式获取响应 - 关键修改：将系统提示和用户提示分离！
                     for chunk in deepseek_service.stream_chat(
                         prompt=final_prompt,
+                        system_prompt=system_prompt,  # ✅ 新增：独立的系统提示
                         temperature=temperature,
                         max_tokens=max_tokens,
                     ):
